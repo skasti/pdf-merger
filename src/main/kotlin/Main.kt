@@ -20,7 +20,8 @@ fun main(args: Array<String>) {
     try {
         val startDirectory = Path.of(args.firstOrNull() ?: ".").toRealPath()
         TerminalBuilder.builder().system(true).provider("jni").dumb(false).build().use { keyboard ->
-            PdfMergerTui(Terminal(interactive = true), keyboard, startDirectory).run()
+            val terminal = Terminal(interactive = true, terminalInterface = JLineTerminalInterface(keyboard))
+            PdfMergerTui(terminal, keyboard, startDirectory).run()
         }
     } catch (exception: Exception) {
         System.err.println("Kunne ikke starte PDF-sammenslåing: ${exception.message}")

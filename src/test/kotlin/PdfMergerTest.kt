@@ -2,6 +2,7 @@ package org.skasti
 
 import com.github.ajalt.mordant.terminal.Terminal
 import com.github.ajalt.mordant.terminal.TerminalRecorder
+import com.github.ajalt.mordant.widgets.Text
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.pdmodel.PDPage
@@ -182,15 +183,36 @@ class PdfMergerTest {
         assertFalse(Files.exists(directory.resolve("samlet.pdf")))
     }
 
-    private fun runTerminal(input: String): String {
-        val recorder = TerminalRecorder(width = 100, height = 30)
+    @Test
+    fun `fullscreen frames retain both panels header and footer without reaching the last cell`() {
+        repeat(25) { Files.createDirectory(directory.resolve("mappe-$it")) }
+        for ((width, height) in listOf(100 to 30, 64 to 16)) {
+            val screen = runTerminal("\u001b[B\t\u001b[Bq", width, height)
+            val frames = screen.split("\u001b[1;1H\u001b[0J").drop(1)
+            assertTrue(frames.size >= 4, "Navigation must redraw the screen")
+            for (frame in frames) {
+                val rendered = Text(frame.substringBefore("\u001b[?25h")).render(Terminal(interactive = false), Int.MAX_VALUE)
+                assertEquals(height - 1, rendered.height)
+                assertEquals(width - 1, rendered.width)
+                assertTrue(frame.contains("PDF-SAMMENSLÅING"))
+                assertTrue(frame.contains("FILER"))
+                assertTrue(frame.contains("REKKEFØLGE"))
+                assertTrue(frame.contains("Q Avslutt"))
+                assertTrue(frame.contains("╭"), "Panels should have visible borders")
+            }
+        }
+    }
+
+    private fun runTerminal(input: String, width: Int = 100, height: Int = 30): String {
+        val recorder = TerminalRecorder(width = width, height = height, supportsAnsiCursor = true)
         DumbTerminal("test", "xterm", ByteArrayInputStream(input.toByteArray(Charsets.UTF_8)), ByteArrayOutputStream(), Charsets.UTF_8).use { keyboard ->
-            keyboard.size = Size(100, 30)
+            keyboard.size = Size(width, height)
             val originalAttributes = keyboard.attributes.toString()
             PdfMergerTui(Terminal(terminalInterface = recorder), keyboard, directory).run()
             assertEquals(originalAttributes, keyboard.attributes.toString())
         }
         val screen = recorder.output()
+        assertTrue(screen.split("\u001b[1;1H").size > 2, "Each frame must start at the top-left corner")
         assertTrue(screen.startsWith("\u001b[?1049h\u001b[?25l"))
         assertTrue(screen.endsWith("\u001b[?25h\u001b[?1049l"))
         return screen

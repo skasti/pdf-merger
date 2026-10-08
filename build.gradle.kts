@@ -22,11 +22,6 @@ dependencies {
 
 application {
     mainClass.set("org.skasti.MainKt")
-    applicationDefaultJvmArgs = listOf("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
-}
-
-tasks.withType<JavaExec>().configureEach {
-    jvmArgs(application.applicationDefaultJvmArgs)
 }
 
 tasks.named<JavaExec>("run") {

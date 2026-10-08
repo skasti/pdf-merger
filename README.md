@@ -1,6 +1,6 @@
 # PDF-sammenslåing
 
-Et terminalverktøy i Kotlin som slår sammen 1–15 PDF-filer til én ny PDF. Alle sidene tas med i rekkefølgen du velger. Filene behandles lokalt med Apache PDFBox, og terminalgrensesnittet bruker Mordant 3.1.0 til skjermoppdatering og farger, med JLine til tastatur og raw mode, som i retro-zip og yame.
+Et terminalverktøy i Kotlin som slår sammen 1–15 PDF-filer til én ny PDF. Alle sidene tas med i rekkefølgen du velger. Filene behandles lokalt med Apache PDFBox, og terminalgrensesnittet bruker Mordant 3.1.0 til paneler, fokusmarkering og fullskjermvisning, med JLine til tastatur og native terminalutskrift. På Windows skrives Unicode-tegn direkte til konsollen, uavhengig av aktiv kodepage.
 
 Du trenger Java 21 eller nyere.
 

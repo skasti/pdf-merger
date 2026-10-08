@@ -1,12 +1,16 @@
 package org.skasti
 
-import com.github.ajalt.mordant.animation.textAnimation
+import com.github.ajalt.mordant.rendering.TextAlign
+import com.github.ajalt.mordant.rendering.TextColors.brightBlue
 import com.github.ajalt.mordant.rendering.TextColors.brightCyan
 import com.github.ajalt.mordant.rendering.TextColors.brightGreen
 import com.github.ajalt.mordant.rendering.TextColors.brightRed
 import com.github.ajalt.mordant.rendering.TextColors.cyan
 import com.github.ajalt.mordant.rendering.TextStyles.bold
+import com.github.ajalt.mordant.rendering.TextStyles.inverse
 import com.github.ajalt.mordant.terminal.Terminal
+import com.github.ajalt.mordant.widgets.Padding
+import com.github.ajalt.mordant.widgets.Panel
 import org.jline.keymap.BindingReader
 import org.jline.keymap.KeyMap
 import org.jline.utils.InfoCmp.Capability
@@ -27,7 +31,6 @@ class PdfMergerTui(
     startDirectory: Path,
 ) {
     private val reader = BindingReader(keyboard.reader())
-    private val animation = terminal.textAnimation<String> { it }
     private val text = TerminalText(terminal)
     private val selection = PdfSelection()
     private var directory = startDirectory
@@ -62,11 +65,7 @@ class PdfMergerTui(
             }
         } finally {
             try {
-                try {
-                    animation.stop()
-                } finally {
-                    terminal.rawPrint("\u001b[?25h\u001b[?1049l")
-                }
+                terminal.rawPrint("\u001b[?25h\u001b[?1049l")
             } finally {
                 try {
                     keyboard.attributes = originalAttributes
@@ -155,26 +154,27 @@ class PdfMergerTui(
 
     private fun render(promptTitle: String? = null, input: String = "") {
         val size = terminal.updateSize()
-        val rows = max(1, size.height)
-        val columns = max(1, size.width)
+        // Leave the last cell and row unused so console wrapping cannot scroll the frame.
+        val rows = max(1, size.height - 1)
+        val columns = max(1, size.width - 1)
         val lines = mutableListOf<String>()
         fun line(value: String, style: (String) -> String = { it }) {
             lines.add(style(fit(value, columns)))
         }
-        if (columns < 64 || rows < 16) {
+        if (size.width < 64 || size.height < 16) {
             line("Gjør terminalen større (minst 64 × 16). Q avslutter.")
         } else {
-            val listRows = rows - 11
-            val leftWidth = (columns - 3) / 2
-            val rightWidth = columns - leftWidth - 3
+            val listRows = rows - 12
+            val leftWidth = (columns - 1) / 2
+            val rightWidth = columns - leftWidth - 1
             val chosen = selection.paths
             val browserStart = windowStart(browserIndex, entries.size, listRows)
             val selectionStart = windowStart(selectedIndex, chosen.size, listRows)
             line("PDF-SAMMENSLÅING    ${chosen.size}/$MAX_PDF_FILES filer") { (brightCyan + bold)(it) }
             line("Mappe: $directory")
             line("Utfil: $output")
-            line(fit(if (selectionFocused) "  FILER" else "> FILER", leftWidth) + " | " +
-                fit(if (selectionFocused) "> REKKEFØLGE" else "  REKKEFØLGE", rightWidth)) { bold(it) }
+            val browserLines = mutableListOf<String>()
+            val selectionLines = mutableListOf<String>()
             repeat(listRows) { row ->
                 val leftIndex = browserStart + row
                 val rightIndex = selectionStart + row
@@ -182,13 +182,21 @@ class PdfMergerTui(
                     val cursor = if (!selectionFocused && leftIndex == browserIndex) ">" else " "
                     val mark = if (entry.directory) "[mappe]" else if (entry.path in chosen) "[x]" else "[ ]"
                     "$cursor $mark ${if (entry.parent) ".." else entry.path.fileName}"
-                } ?: if (entries.isEmpty() && row == 0) "  Ingen PDF-filer i mappen." else ""
+                } ?: if (entries.isEmpty() && row == 0) "Ingen PDF-filer i mappen." else ""
                 val right = chosen.getOrNull(rightIndex)?.let { path ->
                     val cursor = if (selectionFocused && rightIndex == selectedIndex) ">" else " "
                     "$cursor ${rightIndex + 1}. ${path.fileName}"
-                } ?: if (chosen.isEmpty() && row == 0) "  Ingen filer valgt." else ""
-                line(fit(left, leftWidth) + " | " + fit(right, rightWidth))
+                } ?: if (chosen.isEmpty() && row == 0) "Ingen filer valgt." else ""
+                val leftText = fit(left, leftWidth - 4)
+                val rightText = fit(right, rightWidth - 4)
+                browserLines += if (!selectionFocused && leftIndex == browserIndex && leftIndex < entries.size)
+                    (brightCyan + bold + inverse)(leftText) else leftText
+                selectionLines += if (selectionFocused && rightIndex == selectedIndex && rightIndex < chosen.size)
+                    (brightCyan + bold + inverse)(rightText) else rightText
             }
+            val browser = panel("FILER", browserLines, leftWidth, focused = !selectionFocused)
+            val ordering = panel("REKKEFØLGE", selectionLines, rightWidth, focused = selectionFocused)
+            browser.indices.forEach { row -> lines += browser[row] + " " + ordering[row] }
             val activePath = if (selectionFocused) chosen.getOrNull(selectedIndex)
             else entries.getOrNull(browserIndex)?.path
             line("Markert: ${activePath ?: "–"}")
@@ -199,7 +207,25 @@ class PdfMergerTui(
             line(if (promptTitle != null) "$promptTitle: ${inputTail(input, columns - promptTitle.length - 4)}▏" else "")
             line(if (promptTitle != null) "Enter Bekreft  Esc Avbryt  Ctrl+U Tøm feltet" else "") { cyan(it) }
         }
-        animation.update(lines.take(rows).joinToString("\n"))
+        // A fullscreen UI has a fixed origin. Relative textAnimation updates in Mordant 3.1.0
+        // skip moving up on terminals reporting ANSI cursor support (including Windows Terminal).
+        terminal.cursor.move {
+            setPosition(0, 0)
+            clearScreenAfterCursor()
+        }
+        terminal.print(lines.take(rows).joinToString("\n"))
+    }
+
+    private fun panel(title: String, lines: List<String>, width: Int, focused: Boolean): List<String> {
+        val widget = Panel(
+            content = lines.joinToString("\n"),
+            title = if (focused) "> $title" else title,
+            expand = true,
+            padding = Padding(top = 0, right = 1, bottom = 0, left = 1),
+            titleAlign = TextAlign.LEFT,
+            borderStyle = if (focused) brightCyan else brightBlue,
+        )
+        return terminal.render(widget.render(terminal, width)).split("\n")
     }
 
     private fun prompt(title: String, initial: String): String? {
