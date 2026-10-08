@@ -1,5 +1,7 @@
 package org.skasti
 
+import com.github.ajalt.mordant.terminal.Terminal
+import com.github.ajalt.mordant.terminal.TerminalRecorder
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.pdmodel.PDPage
@@ -155,7 +157,7 @@ class PdfMergerTest {
     @Test
     fun `unsupported terminals fail before waiting for input`() {
         DumbTerminal("test", "dumb", ByteArrayInputStream(byteArrayOf()), ByteArrayOutputStream(), Charsets.UTF_8).use { terminal ->
-            val failure = assertFailsWith<IllegalArgumentException> { PdfMergerTui(terminal, directory).run() }
+            val failure = assertFailsWith<IllegalArgumentException> { PdfMergerTui(Terminal(terminalInterface = TerminalRecorder()), terminal, directory).run() }
             assertTrue(failure.message.orEmpty().contains("TERM=dumb"))
         }
     }
@@ -181,12 +183,17 @@ class PdfMergerTest {
     }
 
     private fun runTerminal(input: String): String {
-        val output = ByteArrayOutputStream()
-        DumbTerminal("test", "xterm", ByteArrayInputStream(input.toByteArray(Charsets.UTF_8)), output, Charsets.UTF_8).use { terminal ->
-            terminal.size = Size(100, 30)
-            PdfMergerTui(terminal, directory).run()
+        val recorder = TerminalRecorder(width = 100, height = 30)
+        DumbTerminal("test", "xterm", ByteArrayInputStream(input.toByteArray(Charsets.UTF_8)), ByteArrayOutputStream(), Charsets.UTF_8).use { keyboard ->
+            keyboard.size = Size(100, 30)
+            val originalAttributes = keyboard.attributes.toString()
+            PdfMergerTui(Terminal(terminalInterface = recorder), keyboard, directory).run()
+            assertEquals(originalAttributes, keyboard.attributes.toString())
         }
-        return output.toString(Charsets.UTF_8)
+        val screen = recorder.output()
+        assertTrue(screen.startsWith("\u001b[?1049h\u001b[?25l"))
+        assertTrue(screen.endsWith("\u001b[?25h\u001b[?1049l"))
+        return screen
     }
 
     private fun createPdf(name: String, vararg pages: String): Path {

@@ -12,6 +12,7 @@ repositories {
 
 dependencies {
     implementation("org.apache.pdfbox:pdfbox:3.0.8")
+    implementation("com.github.ajalt.mordant:mordant:3.1.0")
     implementation("org.jline:jline-terminal:3.30.17")
     implementation("org.jline:jline-terminal-jni:3.30.17")
     implementation("org.jline:jline-reader:3.30.17")

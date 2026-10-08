@@ -1,14 +1,19 @@
 package org.skasti
 
+import com.github.ajalt.mordant.animation.textAnimation
+import com.github.ajalt.mordant.rendering.TextColors.brightCyan
+import com.github.ajalt.mordant.rendering.TextColors.brightGreen
+import com.github.ajalt.mordant.rendering.TextColors.brightRed
+import com.github.ajalt.mordant.rendering.TextColors.cyan
+import com.github.ajalt.mordant.rendering.TextStyles.bold
+import com.github.ajalt.mordant.terminal.Terminal
 import org.jline.keymap.BindingReader
 import org.jline.keymap.KeyMap
-import org.jline.terminal.Terminal
-import org.jline.utils.AttributedString
-import org.jline.utils.Display
 import org.jline.utils.InfoCmp.Capability
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.max
+import org.jline.terminal.Terminal as KeyboardTerminal
 
 private enum class Key {
     UP, DOWN, TAB, ENTER, SPACE, BACK, DELETE, GO, OUTPUT, MERGE, QUIT, ESCAPE, EARLIER, LATER, TEXT
@@ -16,9 +21,14 @@ private enum class Key {
 
 private data class Entry(val path: Path, val directory: Boolean, val parent: Boolean = false)
 
-class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
-    private val reader = BindingReader(terminal.reader())
-    private val display = Display(terminal, true)
+class PdfMergerTui(
+    private val terminal: Terminal,
+    private val keyboard: KeyboardTerminal,
+    startDirectory: Path,
+) {
+    private val reader = BindingReader(keyboard.reader())
+    private val animation = terminal.textAnimation<String> { it }
+    private val text = TerminalText(terminal)
     private val selection = PdfSelection()
     private var directory = startDirectory
     private var entries = emptyList<Entry>()
@@ -31,15 +41,15 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
     private val keys = keyMap()
 
     fun run() {
-        require(!terminal.type.startsWith("dumb")) {
-            "Terminalen støtter ikke et interaktivt grensesnitt (TERM=${terminal.type})."
+        require(!keyboard.type.startsWith("dumb")) {
+            "Terminalen støtter ikke et interaktivt grensesnitt (TERM=${keyboard.type})."
         }
         openDirectory(directory)
-        val originalAttributes = terminal.enterRawMode()
+        val originalAttributes = keyboard.enterRawMode()
         try {
-            terminal.puts(Capability.enter_ca_mode)
-            terminal.puts(Capability.keypad_xmit)
-            terminal.puts(Capability.cursor_invisible)
+            terminal.rawPrint("\u001b[?1049h\u001b[?25l")
+            keyboard.puts(Capability.keypad_xmit)
+            keyboard.flush()
             while (true) {
                 render()
                 val key = reader.readBinding(keys) ?: break
@@ -51,11 +61,20 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
                 }
             }
         } finally {
-            terminal.attributes = originalAttributes
-            terminal.puts(Capability.cursor_normal)
-            terminal.puts(Capability.keypad_local)
-            terminal.puts(Capability.exit_ca_mode)
-            terminal.flush()
+            try {
+                try {
+                    animation.stop()
+                } finally {
+                    terminal.rawPrint("\u001b[?25h\u001b[?1049l")
+                }
+            } finally {
+                try {
+                    keyboard.attributes = originalAttributes
+                } finally {
+                    keyboard.puts(Capability.keypad_local)
+                    keyboard.flush()
+                }
+            }
         }
     }
 
@@ -135,13 +154,12 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
     }
 
     private fun render(promptTitle: String? = null, input: String = "") {
-        val rows = max(1, terminal.height)
-        val columns = max(1, terminal.width)
-        display.resize(rows, columns)
-        val lines = mutableListOf<AttributedString>()
-        fun line(text: String, color: String = "") {
-            val clipped = fit(text, columns)
-            lines.add(AttributedString.fromAnsi(if (color.isEmpty()) clipped else "$color$clipped\u001b[0m"))
+        val size = terminal.updateSize()
+        val rows = max(1, size.height)
+        val columns = max(1, size.width)
+        val lines = mutableListOf<String>()
+        fun line(value: String, style: (String) -> String = { it }) {
+            lines.add(style(fit(value, columns)))
         }
         if (columns < 64 || rows < 16) {
             line("Gjør terminalen større (minst 64 × 16). Q avslutter.")
@@ -152,11 +170,11 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
             val chosen = selection.paths
             val browserStart = windowStart(browserIndex, entries.size, listRows)
             val selectionStart = windowStart(selectedIndex, chosen.size, listRows)
-            line("PDF-SAMMENSLÅING    ${chosen.size}/$MAX_PDF_FILES filer", "\u001b[1;36m")
+            line("PDF-SAMMENSLÅING    ${chosen.size}/$MAX_PDF_FILES filer") { (brightCyan + bold)(it) }
             line("Mappe: $directory")
             line("Utfil: $output")
             line(fit(if (selectionFocused) "  FILER" else "> FILER", leftWidth) + " | " +
-                fit(if (selectionFocused) "> REKKEFØLGE" else "  REKKEFØLGE", rightWidth), "\u001b[1m")
+                fit(if (selectionFocused) "> REKKEFØLGE" else "  REKKEFØLGE", rightWidth)) { bold(it) }
             repeat(listRows) { row ->
                 val leftIndex = browserStart + row
                 val rightIndex = selectionStart + row
@@ -174,15 +192,14 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
             val activePath = if (selectionFocused) chosen.getOrNull(selectedIndex)
             else entries.getOrNull(browserIndex)?.path
             line("Markert: ${activePath ?: "–"}")
-            line(message, if (failed) "\u001b[31m" else "\u001b[32m")
+            line(message) { if (failed) brightRed(it) else brightGreen(it) }
             line("↑/↓ Flytt markør  Tab Bytt panel  Enter Åpne/velg")
             line("Mellomrom Velg/fjern  + Opp i rekkefølgen  - Ned  Del Fjern")
             line("G Åpne mappe  O Velg utfil  M Slå sammen  Q Avslutt")
             line(if (promptTitle != null) "$promptTitle: ${inputTail(input, columns - promptTitle.length - 4)}▏" else "")
-            line(if (promptTitle != null) "Enter Bekreft  Esc Avbryt  Ctrl+U Tøm feltet" else "", "\u001b[36m")
+            line(if (promptTitle != null) "Enter Bekreft  Esc Avbryt  Ctrl+U Tøm feltet" else "") { cyan(it) }
         }
-        display.update(lines.take(rows), -1)
-        terminal.flush()
+        animation.update(lines.take(rows).joinToString("\n"))
     }
 
     private fun prompt(title: String, initial: String): String? {
@@ -216,8 +233,8 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
     private fun keyMap() = KeyMap<Key>().apply {
         bind(Key.UP, "\u001b[A", "\u001bOA")
         bind(Key.DOWN, "\u001b[B", "\u001bOB")
-        KeyMap.key(terminal, Capability.key_up)?.let { bind(Key.UP, it) }
-        KeyMap.key(terminal, Capability.key_down)?.let { bind(Key.DOWN, it) }
+        KeyMap.key(keyboard, Capability.key_up)?.let { bind(Key.UP, it) }
+        KeyMap.key(keyboard, Capability.key_down)?.let { bind(Key.DOWN, it) }
         bind(Key.TAB, "\t")
         bind(Key.ENTER, "\r", "\n")
         bind(Key.SPACE, " ")
@@ -236,15 +253,7 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
     private fun windowStart(index: Int, size: Int, rows: Int) =
         (index - rows / 2).coerceIn(0, max(0, size - rows))
 
-    private fun clean(text: String) = text.map { if (it.isISOControl()) ' ' else it }.joinToString("")
+    private fun fit(value: String, width: Int) = text.fit(value, width)
 
-    private fun fit(text: String, width: Int): String {
-        val clipped = AttributedString(clean(text)).columnSubSequence(0, max(0, width))
-        return clipped.toString() + " ".repeat(max(0, width - clipped.columnLength()))
-    }
-
-    private fun inputTail(text: String, width: Int): String {
-        val attributed = AttributedString(clean(text))
-        return attributed.columnSubSequence(max(0, attributed.columnLength() - max(1, width)), attributed.columnLength()).toString()
-    }
+    private fun inputTail(value: String, width: Int) = text.tail(value, width)
 }
