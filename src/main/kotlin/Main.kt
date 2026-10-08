@@ -1,30 +1,32 @@
 package org.skasti
 
+import com.github.ajalt.mordant.terminal.Terminal
 import org.jline.terminal.TerminalBuilder
 import java.nio.file.Path
 import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
     if (args.any { it == "--help" || it == "-h" }) {
-        println("Bruk: pdf-merger [startmappe]")
-        println("Velg 1–15 PDF-filer med mellomrom. Tab bytter panel, +/− endrer rekkefølge.")
-        println("G: åpne mappe, O: velg utfil, M: slå sammen, Q: avslutt.")
+        println("Usage: pdf-merger [starting-directory]")
+        println("Select 1–15 PDFs with Space. Tab switches panels; +/− changes the order.")
+        println("G: open directory, O: choose output file, M: merge, Q: quit.")
         return
     }
     if (args.size > 1) {
-        System.err.println("Bruk: pdf-merger [startmappe]")
+        System.err.println("Usage: pdf-merger [starting-directory]")
         exitProcess(1)
     }
 
     try {
         val startDirectory = Path.of(args.firstOrNull() ?: ".").toRealPath()
-        TerminalBuilder.builder().system(true).dumb(false).build().use { terminal ->
-            PdfMergerTui(terminal, startDirectory).run()
+        TerminalBuilder.builder().system(true).provider("jni").dumb(false).build().use { keyboard ->
+            val terminal = Terminal(interactive = true, terminalInterface = JLineTerminalInterface(keyboard))
+            PdfMergerTui(terminal, keyboard, startDirectory).run()
         }
     } catch (exception: Exception) {
-        System.err.println("Kunne ikke starte PDF-sammenslåing: ${exception.message}")
-        System.err.println("I IntelliJ: velg Run-konfigurasjonen \"PDF-merger\", som åpner Windows Terminal.")
-        System.err.println("Du kan også kjøre build/install/pdf-merger/bin/pdf-merger direkte i en terminal.")
+        System.err.println("Could not start PDF Merger: ${exception.message}")
+        System.err.println("In IntelliJ: select the \"PDF-merger\" Run configuration to open Windows Terminal.")
+        System.err.println("You can also run build/install/pdf-merger/bin/pdf-merger directly in a terminal.")
         exitProcess(1)
     }
 }

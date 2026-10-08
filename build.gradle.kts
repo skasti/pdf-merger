@@ -12,6 +12,7 @@ repositories {
 
 dependencies {
     implementation("org.apache.pdfbox:pdfbox:3.0.8")
+    implementation("com.github.ajalt.mordant:mordant:3.1.0")
     implementation("org.jline:jline-terminal:3.30.17")
     implementation("org.jline:jline-terminal-jni:3.30.17")
     implementation("org.jline:jline-reader:3.30.17")
@@ -21,11 +22,14 @@ dependencies {
 
 application {
     mainClass.set("org.skasti.MainKt")
-    applicationDefaultJvmArgs = listOf("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
 }
 
-tasks.withType<JavaExec>().configureEach {
-    jvmArgs(application.applicationDefaultJvmArgs)
+distributions {
+    main {
+        contents {
+            from("README.md", "LICENSE")
+        }
+    }
 }
 
 tasks.named<JavaExec>("run") {

@@ -23,9 +23,9 @@ class PdfSelection {
             selected.removeAt(existing)
             return
         }
-        require(selected.size < MAX_PDF_FILES) { "Du kan velge maksimalt $MAX_PDF_FILES PDF-filer." }
+        require(selected.size < MAX_PDF_FILES) { "You can select up to $MAX_PDF_FILES PDF files." }
         require(Files.isRegularFile(path) && path.fileName.toString().endsWith(".pdf", ignoreCase = true)) {
-            "Velg en PDF-fil."
+            "Select a PDF file."
         }
         selected.add(path.toRealPath())
     }
@@ -44,24 +44,24 @@ class PdfSelection {
 
 class PdfMerger {
     fun merge(sources: List<Path>, destination: Path): MergeResult {
-        require(sources.size in 1..MAX_PDF_FILES) { "Velg mellom 1 og $MAX_PDF_FILES PDF-filer." }
+        require(sources.size in 1..MAX_PDF_FILES) { "Select between 1 and $MAX_PDF_FILES PDF files." }
         val output = destination.toAbsolutePath().normalize()
-        require(output.fileName.toString().endsWith(".pdf", ignoreCase = true)) { "Utfilen må slutte på .pdf." }
-        require(Files.isDirectory(output.parent)) { "Mappen for utfilen finnes ikke: ${output.parent}" }
-        require(!Files.exists(output, NOFOLLOW_LINKS)) { "Utfilen finnes allerede. Velg et annet filnavn." }
+        require(output.fileName.toString().endsWith(".pdf", ignoreCase = true)) { "The output filename must end in .pdf." }
+        require(Files.isDirectory(output.parent)) { "The output directory does not exist: ${output.parent}" }
+        require(!Files.exists(output, NOFOLLOW_LINKS)) { "The output file already exists. Choose a different filename." }
 
         var pages = 0
         val validatedSources = sources.map { source ->
-            require(Files.isRegularFile(source) && Files.isReadable(source)) { "Kan ikke lese filen: $source" }
+            require(Files.isRegularFile(source) && Files.isReadable(source)) { "Cannot read file: $source" }
             try {
                 Loader.loadPDF(source.toFile()).use { document ->
-                    require(!document.isEncrypted) { "${source.fileName} er kryptert. Bruk en ukryptert kopi." }
+                    require(!document.isEncrypted) { "${source.fileName} is encrypted. Use an unencrypted copy." }
                     pages += document.numberOfPages
                 }
             } catch (_: InvalidPasswordException) {
-                throw IllegalArgumentException("${source.fileName} er passordbeskyttet. Bruk en ukryptert kopi.")
+                throw IllegalArgumentException("${source.fileName} requires a password. Use an unencrypted copy.")
             } catch (exception: IOException) {
-                throw IOException("Kunne ikke lese PDF-filen ${source.fileName}: ${exception.message}", exception)
+                throw IOException("Could not read PDF file ${source.fileName}: ${exception.message}", exception)
             }
             source.toFile()
         }

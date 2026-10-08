@@ -1,14 +1,23 @@
 package org.skasti
 
+import com.github.ajalt.mordant.rendering.TextAlign
+import com.github.ajalt.mordant.rendering.TextColors.brightBlue
+import com.github.ajalt.mordant.rendering.TextColors.brightCyan
+import com.github.ajalt.mordant.rendering.TextColors.brightGreen
+import com.github.ajalt.mordant.rendering.TextColors.brightRed
+import com.github.ajalt.mordant.rendering.TextColors.cyan
+import com.github.ajalt.mordant.rendering.TextStyles.bold
+import com.github.ajalt.mordant.rendering.TextStyles.inverse
+import com.github.ajalt.mordant.terminal.Terminal
+import com.github.ajalt.mordant.widgets.Padding
+import com.github.ajalt.mordant.widgets.Panel
 import org.jline.keymap.BindingReader
 import org.jline.keymap.KeyMap
-import org.jline.terminal.Terminal
-import org.jline.utils.AttributedString
-import org.jline.utils.Display
 import org.jline.utils.InfoCmp.Capability
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.max
+import org.jline.terminal.Terminal as KeyboardTerminal
 
 private enum class Key {
     UP, DOWN, TAB, ENTER, SPACE, BACK, DELETE, GO, OUTPUT, MERGE, QUIT, ESCAPE, EARLIER, LATER, TEXT
@@ -16,30 +25,34 @@ private enum class Key {
 
 private data class Entry(val path: Path, val directory: Boolean, val parent: Boolean = false)
 
-class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
-    private val reader = BindingReader(terminal.reader())
-    private val display = Display(terminal, true)
+class PdfMergerTui(
+    private val terminal: Terminal,
+    private val keyboard: KeyboardTerminal,
+    startDirectory: Path,
+) {
+    private val reader = BindingReader(keyboard.reader())
+    private val text = TerminalText(terminal)
     private val selection = PdfSelection()
     private var directory = startDirectory
     private var entries = emptyList<Entry>()
     private var browserIndex = 0
     private var selectedIndex = 0
     private var selectionFocused = false
-    private var output = startDirectory.resolve("samlet.pdf")
-    private var message = "Velg PDF-filer i ønsket rekkefølge. Du kan hente filer fra flere mapper."
+    private var output = startDirectory.resolve("merged.pdf")
+    private var message = "Select PDFs in the desired order. You can select files from multiple directories."
     private var failed = false
     private val keys = keyMap()
 
     fun run() {
-        require(!terminal.type.startsWith("dumb")) {
-            "Terminalen støtter ikke et interaktivt grensesnitt (TERM=${terminal.type})."
+        require(!keyboard.type.startsWith("dumb")) {
+            "This terminal does not support an interactive interface (TERM=${keyboard.type})."
         }
         openDirectory(directory)
-        val originalAttributes = terminal.enterRawMode()
+        val originalAttributes = keyboard.enterRawMode()
         try {
-            terminal.puts(Capability.enter_ca_mode)
-            terminal.puts(Capability.keypad_xmit)
-            terminal.puts(Capability.cursor_invisible)
+            terminal.rawPrint("\u001b[?1049h\u001b[?25l")
+            keyboard.puts(Capability.keypad_xmit)
+            keyboard.flush()
             while (true) {
                 render()
                 val key = reader.readBinding(keys) ?: break
@@ -47,15 +60,20 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
                 try {
                     handle(key)
                 } catch (exception: Exception) {
-                    setMessage(exception.message ?: "Operasjonen mislyktes.", error = true)
+                    setMessage(exception.message ?: "Operation failed.", error = true)
                 }
             }
         } finally {
-            terminal.attributes = originalAttributes
-            terminal.puts(Capability.cursor_normal)
-            terminal.puts(Capability.keypad_local)
-            terminal.puts(Capability.exit_ca_mode)
-            terminal.flush()
+            try {
+                terminal.rawPrint("\u001b[?25h\u001b[?1049l")
+            } finally {
+                try {
+                    keyboard.attributes = originalAttributes
+                } finally {
+                    keyboard.puts(Capability.keypad_local)
+                    keyboard.flush()
+                }
+            }
         }
     }
 
@@ -73,7 +91,7 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
                             if (key == Key.ENTER) openDirectory(entry.path)
                         } else {
                             selection.toggle(entry.path)
-                            setMessage("${selection.paths.size} av $MAX_PDF_FILES filer valgt.")
+                            setMessage("${selection.paths.size} of $MAX_PDF_FILES files selected.")
                         }
                     }
                 }
@@ -82,19 +100,19 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
             Key.BACK -> if (selectionFocused) selection.remove(selectedIndex) else directory.parent?.let(::openDirectory)
             Key.EARLIER -> if (selectionFocused) selectedIndex = selection.move(selectedIndex, -1)
             Key.LATER -> if (selectionFocused) selectedIndex = selection.move(selectedIndex, 1)
-            Key.GO -> prompt("Åpne mappe", directory.toString())?.let { openDirectory(resolvePath(it)) }
-            Key.OUTPUT -> prompt("Lagre som (ny fil)", output.toString())?.let { value ->
+            Key.GO -> prompt("Open directory", directory.toString())?.let { openDirectory(resolvePath(it)) }
+            Key.OUTPUT -> prompt("Save as (new file)", output.toString())?.let { value ->
                 val path = resolvePath(value)
                 output = if (path.fileName.toString().endsWith(".pdf", ignoreCase = true)) path
                 else path.resolveSibling("${path.fileName}.pdf")
-                setMessage("Utfil valgt. Trykk M for å slå sammen.")
+                setMessage("Output file selected. Press M to merge.")
             }
             Key.MERGE -> {
-                require(selection.paths.isNotEmpty()) { "Velg minst én PDF-fil først." }
-                setMessage("Slår sammen ${selection.paths.size} filer. Vent …")
+                require(selection.paths.isNotEmpty()) { "Select at least one PDF first." }
+                setMessage("Merging ${selection.paths.size} files. Please wait …")
                 render()
                 val result = PdfMerger().merge(selection.paths, output)
-                setMessage("Lagret ${result.pages} sider fra ${result.files} filer: ${result.output}")
+                setMessage("Saved ${result.pages} pages from ${result.files} files: ${result.output}")
             }
             else -> Unit
         }
@@ -104,7 +122,7 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
 
     private fun openDirectory(path: Path) {
         val resolved = path.toRealPath()
-        require(Files.isDirectory(resolved)) { "Dette er ikke en mappe: $path" }
+        require(Files.isDirectory(resolved)) { "This is not a directory: $path" }
         val contents = Files.list(resolved).use { stream ->
             stream.map { Entry(it, Files.isDirectory(it)) }
                 .filter { it.directory || (Files.isRegularFile(it.path) && it.path.fileName.toString().endsWith(".pdf", true)) }
@@ -114,12 +132,12 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
         entries = listOfNotNull(resolved.parent?.let { Entry(it, directory = true, parent = true) }) + contents
         directory = resolved
         browserIndex = 0
-        setMessage("Enter åpner mapper. Mellomrom velger eller fjerner en PDF.")
+        setMessage("Enter opens directories. Space selects or removes a PDF.")
     }
 
     private fun resolvePath(value: String): Path {
         val cleaned = value.trim().removeSurrounding("\"")
-        require(cleaned.isNotBlank()) { "Skriv inn en filsti." }
+        require(cleaned.isNotBlank()) { "Enter a file path." }
         val expanded = when {
             cleaned == "~" -> Path.of(System.getProperty("user.home"))
             cleaned.startsWith("~/") || cleaned.startsWith("~\\") ->
@@ -135,54 +153,79 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
     }
 
     private fun render(promptTitle: String? = null, input: String = "") {
-        val rows = max(1, terminal.height)
-        val columns = max(1, terminal.width)
-        display.resize(rows, columns)
-        val lines = mutableListOf<AttributedString>()
-        fun line(text: String, color: String = "") {
-            val clipped = fit(text, columns)
-            lines.add(AttributedString.fromAnsi(if (color.isEmpty()) clipped else "$color$clipped\u001b[0m"))
+        val size = terminal.updateSize()
+        // Leave the last cell and row unused so console wrapping cannot scroll the frame.
+        val rows = max(1, size.height - 1)
+        val columns = max(1, size.width - 1)
+        val lines = mutableListOf<String>()
+        fun line(value: String, style: (String) -> String = { it }) {
+            lines.add(style(fit(value, columns)))
         }
-        if (columns < 64 || rows < 16) {
-            line("Gjør terminalen større (minst 64 × 16). Q avslutter.")
+        if (size.width < 64 || size.height < 16) {
+            line("Resize the terminal to at least 64 × 16. Q quits.")
         } else {
-            val listRows = rows - 11
-            val leftWidth = (columns - 3) / 2
-            val rightWidth = columns - leftWidth - 3
+            val listRows = rows - 12
+            val leftWidth = (columns - 1) / 2
+            val rightWidth = columns - leftWidth - 1
             val chosen = selection.paths
             val browserStart = windowStart(browserIndex, entries.size, listRows)
             val selectionStart = windowStart(selectedIndex, chosen.size, listRows)
-            line("PDF-SAMMENSLÅING    ${chosen.size}/$MAX_PDF_FILES filer", "\u001b[1;36m")
-            line("Mappe: $directory")
-            line("Utfil: $output")
-            line(fit(if (selectionFocused) "  FILER" else "> FILER", leftWidth) + " | " +
-                fit(if (selectionFocused) "> REKKEFØLGE" else "  REKKEFØLGE", rightWidth), "\u001b[1m")
+            line("PDF MERGER    ${chosen.size}/$MAX_PDF_FILES files") { (brightCyan + bold)(it) }
+            line("Directory: $directory")
+            line("Output: $output")
+            val browserLines = mutableListOf<String>()
+            val selectionLines = mutableListOf<String>()
             repeat(listRows) { row ->
                 val leftIndex = browserStart + row
                 val rightIndex = selectionStart + row
                 val left = entries.getOrNull(leftIndex)?.let { entry ->
                     val cursor = if (!selectionFocused && leftIndex == browserIndex) ">" else " "
-                    val mark = if (entry.directory) "[mappe]" else if (entry.path in chosen) "[x]" else "[ ]"
+                    val mark = if (entry.directory) "[dir]" else if (entry.path in chosen) "[x]" else "[ ]"
                     "$cursor $mark ${if (entry.parent) ".." else entry.path.fileName}"
-                } ?: if (entries.isEmpty() && row == 0) "  Ingen PDF-filer i mappen." else ""
+                } ?: if (entries.isEmpty() && row == 0) "No PDF files in this directory." else ""
                 val right = chosen.getOrNull(rightIndex)?.let { path ->
                     val cursor = if (selectionFocused && rightIndex == selectedIndex) ">" else " "
                     "$cursor ${rightIndex + 1}. ${path.fileName}"
-                } ?: if (chosen.isEmpty() && row == 0) "  Ingen filer valgt." else ""
-                line(fit(left, leftWidth) + " | " + fit(right, rightWidth))
+                } ?: if (chosen.isEmpty() && row == 0) "No files selected." else ""
+                val leftText = fit(left, leftWidth - 4)
+                val rightText = fit(right, rightWidth - 4)
+                browserLines += if (!selectionFocused && leftIndex == browserIndex && leftIndex < entries.size)
+                    (brightCyan + bold + inverse)(leftText) else leftText
+                selectionLines += if (selectionFocused && rightIndex == selectedIndex && rightIndex < chosen.size)
+                    (brightCyan + bold + inverse)(rightText) else rightText
             }
+            val browser = panel("FILES", browserLines, leftWidth, focused = !selectionFocused)
+            val ordering = panel("ORDER", selectionLines, rightWidth, focused = selectionFocused)
+            browser.indices.forEach { row -> lines += browser[row] + " " + ordering[row] }
             val activePath = if (selectionFocused) chosen.getOrNull(selectedIndex)
             else entries.getOrNull(browserIndex)?.path
-            line("Markert: ${activePath ?: "–"}")
-            line(message, if (failed) "\u001b[31m" else "\u001b[32m")
-            line("↑/↓ Flytt markør  Tab Bytt panel  Enter Åpne/velg")
-            line("Mellomrom Velg/fjern  + Opp i rekkefølgen  - Ned  Del Fjern")
-            line("G Åpne mappe  O Velg utfil  M Slå sammen  Q Avslutt")
+            line("Highlighted: ${activePath ?: "–"}")
+            line(message) { if (failed) brightRed(it) else brightGreen(it) }
+            line("↑/↓ Move  Tab Switch panel  Enter Open/select")
+            line("Space Select/remove  + Move up  - Move down  Del Remove")
+            line("G Directory  O Output file  M Merge  Q Quit")
             line(if (promptTitle != null) "$promptTitle: ${inputTail(input, columns - promptTitle.length - 4)}▏" else "")
-            line(if (promptTitle != null) "Enter Bekreft  Esc Avbryt  Ctrl+U Tøm feltet" else "", "\u001b[36m")
+            line(if (promptTitle != null) "Enter Confirm  Esc Cancel  Ctrl+U Clear" else "") { cyan(it) }
         }
-        display.update(lines.take(rows), -1)
-        terminal.flush()
+        // A fullscreen UI has a fixed origin. Relative textAnimation updates in Mordant 3.1.0
+        // skip moving up on terminals reporting ANSI cursor support (including Windows Terminal).
+        terminal.cursor.move {
+            setPosition(0, 0)
+            clearScreenAfterCursor()
+        }
+        terminal.print(lines.take(rows).joinToString("\n"))
+    }
+
+    private fun panel(title: String, lines: List<String>, width: Int, focused: Boolean): List<String> {
+        val widget = Panel(
+            content = lines.joinToString("\n"),
+            title = if (focused) "> $title" else title,
+            expand = true,
+            padding = Padding(top = 0, right = 1, bottom = 0, left = 1),
+            titleAlign = TextAlign.LEFT,
+            borderStyle = if (focused) brightCyan else brightBlue,
+        )
+        return terminal.render(widget.render(terminal, width)).split("\n")
     }
 
     private fun prompt(title: String, initial: String): String? {
@@ -216,8 +259,8 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
     private fun keyMap() = KeyMap<Key>().apply {
         bind(Key.UP, "\u001b[A", "\u001bOA")
         bind(Key.DOWN, "\u001b[B", "\u001bOB")
-        KeyMap.key(terminal, Capability.key_up)?.let { bind(Key.UP, it) }
-        KeyMap.key(terminal, Capability.key_down)?.let { bind(Key.DOWN, it) }
+        KeyMap.key(keyboard, Capability.key_up)?.let { bind(Key.UP, it) }
+        KeyMap.key(keyboard, Capability.key_down)?.let { bind(Key.DOWN, it) }
         bind(Key.TAB, "\t")
         bind(Key.ENTER, "\r", "\n")
         bind(Key.SPACE, " ")
@@ -236,15 +279,7 @@ class PdfMergerTui(private val terminal: Terminal, startDirectory: Path) {
     private fun windowStart(index: Int, size: Int, rows: Int) =
         (index - rows / 2).coerceIn(0, max(0, size - rows))
 
-    private fun clean(text: String) = text.map { if (it.isISOControl()) ' ' else it }.joinToString("")
+    private fun fit(value: String, width: Int) = text.fit(value, width)
 
-    private fun fit(text: String, width: Int): String {
-        val clipped = AttributedString(clean(text)).columnSubSequence(0, max(0, width))
-        return clipped.toString() + " ".repeat(max(0, width - clipped.columnLength()))
-    }
-
-    private fun inputTail(text: String, width: Int): String {
-        val attributed = AttributedString(clean(text))
-        return attributed.columnSubSequence(max(0, attributed.columnLength() - max(1, width)), attributed.columnLength()).toString()
-    }
+    private fun inputTail(value: String, width: Int) = text.tail(value, width)
 }
