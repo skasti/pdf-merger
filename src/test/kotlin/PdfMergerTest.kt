@@ -108,7 +108,7 @@ class PdfMergerTest {
         }
         val output = directory.resolve("merged.pdf")
         val failure = assertFailsWith<IllegalArgumentException> { PdfMerger().merge(listOf(encrypted), output) }
-        assertTrue(failure.message.orEmpty().contains("passordbeskyttet"))
+        assertTrue(failure.message.orEmpty().contains("requires a password"))
         assertFalse(Files.exists(output))
         assertNoTemporaryFiles()
     }
@@ -173,14 +173,14 @@ class PdfMergerTest {
         val output = directory.resolve("ferdig æøå.pdf")
         assertTrue(Files.exists(output), screen)
         Loader.loadPDF(output.toFile()).use { assertEquals(listOf("Second", "First"), pageTexts(it)) }
-        assertTrue(screen.contains("Lagret 2 sider fra 2 filer"))
+        assertTrue(screen.contains("Saved 2 pages from 2 files"))
     }
 
     @Test
     fun `terminal keeps running after a failed merge and permits cancelling a path prompt`() {
         val screen = runTerminal("mo\u001bq")
-        assertTrue(screen.contains("Velg minst én PDF-fil først."))
-        assertFalse(Files.exists(directory.resolve("samlet.pdf")))
+        assertTrue(screen.contains("Select at least one PDF first."))
+        assertFalse(Files.exists(directory.resolve("merged.pdf")))
     }
 
     @Test
@@ -194,10 +194,10 @@ class PdfMergerTest {
                 val rendered = Text(frame.substringBefore("\u001b[?25h")).render(Terminal(interactive = false), Int.MAX_VALUE)
                 assertEquals(height - 1, rendered.height)
                 assertEquals(width - 1, rendered.width)
-                assertTrue(frame.contains("PDF-SAMMENSLÅING"))
-                assertTrue(frame.contains("FILER"))
-                assertTrue(frame.contains("REKKEFØLGE"))
-                assertTrue(frame.contains("Q Avslutt"))
+                assertTrue(frame.contains("PDF MERGER"))
+                assertTrue(frame.contains("FILES"))
+                assertTrue(frame.contains("ORDER"))
+                assertTrue(frame.contains("Q Quit"))
                 assertTrue(frame.contains("╭"), "Panels should have visible borders")
             }
         }

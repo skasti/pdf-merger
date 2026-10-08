@@ -38,14 +38,14 @@ class PdfMergerTui(
     private var browserIndex = 0
     private var selectedIndex = 0
     private var selectionFocused = false
-    private var output = startDirectory.resolve("samlet.pdf")
-    private var message = "Velg PDF-filer i ønsket rekkefølge. Du kan hente filer fra flere mapper."
+    private var output = startDirectory.resolve("merged.pdf")
+    private var message = "Select PDFs in the desired order. You can select files from multiple directories."
     private var failed = false
     private val keys = keyMap()
 
     fun run() {
         require(!keyboard.type.startsWith("dumb")) {
-            "Terminalen støtter ikke et interaktivt grensesnitt (TERM=${keyboard.type})."
+            "This terminal does not support an interactive interface (TERM=${keyboard.type})."
         }
         openDirectory(directory)
         val originalAttributes = keyboard.enterRawMode()
@@ -60,7 +60,7 @@ class PdfMergerTui(
                 try {
                     handle(key)
                 } catch (exception: Exception) {
-                    setMessage(exception.message ?: "Operasjonen mislyktes.", error = true)
+                    setMessage(exception.message ?: "Operation failed.", error = true)
                 }
             }
         } finally {
@@ -91,7 +91,7 @@ class PdfMergerTui(
                             if (key == Key.ENTER) openDirectory(entry.path)
                         } else {
                             selection.toggle(entry.path)
-                            setMessage("${selection.paths.size} av $MAX_PDF_FILES filer valgt.")
+                            setMessage("${selection.paths.size} of $MAX_PDF_FILES files selected.")
                         }
                     }
                 }
@@ -100,19 +100,19 @@ class PdfMergerTui(
             Key.BACK -> if (selectionFocused) selection.remove(selectedIndex) else directory.parent?.let(::openDirectory)
             Key.EARLIER -> if (selectionFocused) selectedIndex = selection.move(selectedIndex, -1)
             Key.LATER -> if (selectionFocused) selectedIndex = selection.move(selectedIndex, 1)
-            Key.GO -> prompt("Åpne mappe", directory.toString())?.let { openDirectory(resolvePath(it)) }
-            Key.OUTPUT -> prompt("Lagre som (ny fil)", output.toString())?.let { value ->
+            Key.GO -> prompt("Open directory", directory.toString())?.let { openDirectory(resolvePath(it)) }
+            Key.OUTPUT -> prompt("Save as (new file)", output.toString())?.let { value ->
                 val path = resolvePath(value)
                 output = if (path.fileName.toString().endsWith(".pdf", ignoreCase = true)) path
                 else path.resolveSibling("${path.fileName}.pdf")
-                setMessage("Utfil valgt. Trykk M for å slå sammen.")
+                setMessage("Output file selected. Press M to merge.")
             }
             Key.MERGE -> {
-                require(selection.paths.isNotEmpty()) { "Velg minst én PDF-fil først." }
-                setMessage("Slår sammen ${selection.paths.size} filer. Vent …")
+                require(selection.paths.isNotEmpty()) { "Select at least one PDF first." }
+                setMessage("Merging ${selection.paths.size} files. Please wait …")
                 render()
                 val result = PdfMerger().merge(selection.paths, output)
-                setMessage("Lagret ${result.pages} sider fra ${result.files} filer: ${result.output}")
+                setMessage("Saved ${result.pages} pages from ${result.files} files: ${result.output}")
             }
             else -> Unit
         }
@@ -122,7 +122,7 @@ class PdfMergerTui(
 
     private fun openDirectory(path: Path) {
         val resolved = path.toRealPath()
-        require(Files.isDirectory(resolved)) { "Dette er ikke en mappe: $path" }
+        require(Files.isDirectory(resolved)) { "This is not a directory: $path" }
         val contents = Files.list(resolved).use { stream ->
             stream.map { Entry(it, Files.isDirectory(it)) }
                 .filter { it.directory || (Files.isRegularFile(it.path) && it.path.fileName.toString().endsWith(".pdf", true)) }
@@ -132,12 +132,12 @@ class PdfMergerTui(
         entries = listOfNotNull(resolved.parent?.let { Entry(it, directory = true, parent = true) }) + contents
         directory = resolved
         browserIndex = 0
-        setMessage("Enter åpner mapper. Mellomrom velger eller fjerner en PDF.")
+        setMessage("Enter opens directories. Space selects or removes a PDF.")
     }
 
     private fun resolvePath(value: String): Path {
         val cleaned = value.trim().removeSurrounding("\"")
-        require(cleaned.isNotBlank()) { "Skriv inn en filsti." }
+        require(cleaned.isNotBlank()) { "Enter a file path." }
         val expanded = when {
             cleaned == "~" -> Path.of(System.getProperty("user.home"))
             cleaned.startsWith("~/") || cleaned.startsWith("~\\") ->
@@ -162,7 +162,7 @@ class PdfMergerTui(
             lines.add(style(fit(value, columns)))
         }
         if (size.width < 64 || size.height < 16) {
-            line("Gjør terminalen større (minst 64 × 16). Q avslutter.")
+            line("Resize the terminal to at least 64 × 16. Q quits.")
         } else {
             val listRows = rows - 12
             val leftWidth = (columns - 1) / 2
@@ -170,9 +170,9 @@ class PdfMergerTui(
             val chosen = selection.paths
             val browserStart = windowStart(browserIndex, entries.size, listRows)
             val selectionStart = windowStart(selectedIndex, chosen.size, listRows)
-            line("PDF-SAMMENSLÅING    ${chosen.size}/$MAX_PDF_FILES filer") { (brightCyan + bold)(it) }
-            line("Mappe: $directory")
-            line("Utfil: $output")
+            line("PDF MERGER    ${chosen.size}/$MAX_PDF_FILES files") { (brightCyan + bold)(it) }
+            line("Directory: $directory")
+            line("Output: $output")
             val browserLines = mutableListOf<String>()
             val selectionLines = mutableListOf<String>()
             repeat(listRows) { row ->
@@ -180,13 +180,13 @@ class PdfMergerTui(
                 val rightIndex = selectionStart + row
                 val left = entries.getOrNull(leftIndex)?.let { entry ->
                     val cursor = if (!selectionFocused && leftIndex == browserIndex) ">" else " "
-                    val mark = if (entry.directory) "[mappe]" else if (entry.path in chosen) "[x]" else "[ ]"
+                    val mark = if (entry.directory) "[dir]" else if (entry.path in chosen) "[x]" else "[ ]"
                     "$cursor $mark ${if (entry.parent) ".." else entry.path.fileName}"
-                } ?: if (entries.isEmpty() && row == 0) "Ingen PDF-filer i mappen." else ""
+                } ?: if (entries.isEmpty() && row == 0) "No PDF files in this directory." else ""
                 val right = chosen.getOrNull(rightIndex)?.let { path ->
                     val cursor = if (selectionFocused && rightIndex == selectedIndex) ">" else " "
                     "$cursor ${rightIndex + 1}. ${path.fileName}"
-                } ?: if (chosen.isEmpty() && row == 0) "Ingen filer valgt." else ""
+                } ?: if (chosen.isEmpty() && row == 0) "No files selected." else ""
                 val leftText = fit(left, leftWidth - 4)
                 val rightText = fit(right, rightWidth - 4)
                 browserLines += if (!selectionFocused && leftIndex == browserIndex && leftIndex < entries.size)
@@ -194,18 +194,18 @@ class PdfMergerTui(
                 selectionLines += if (selectionFocused && rightIndex == selectedIndex && rightIndex < chosen.size)
                     (brightCyan + bold + inverse)(rightText) else rightText
             }
-            val browser = panel("FILER", browserLines, leftWidth, focused = !selectionFocused)
-            val ordering = panel("REKKEFØLGE", selectionLines, rightWidth, focused = selectionFocused)
+            val browser = panel("FILES", browserLines, leftWidth, focused = !selectionFocused)
+            val ordering = panel("ORDER", selectionLines, rightWidth, focused = selectionFocused)
             browser.indices.forEach { row -> lines += browser[row] + " " + ordering[row] }
             val activePath = if (selectionFocused) chosen.getOrNull(selectedIndex)
             else entries.getOrNull(browserIndex)?.path
-            line("Markert: ${activePath ?: "–"}")
+            line("Highlighted: ${activePath ?: "–"}")
             line(message) { if (failed) brightRed(it) else brightGreen(it) }
-            line("↑/↓ Flytt markør  Tab Bytt panel  Enter Åpne/velg")
-            line("Mellomrom Velg/fjern  + Opp i rekkefølgen  - Ned  Del Fjern")
-            line("G Åpne mappe  O Velg utfil  M Slå sammen  Q Avslutt")
+            line("↑/↓ Move  Tab Switch panel  Enter Open/select")
+            line("Space Select/remove  + Move up  - Move down  Del Remove")
+            line("G Directory  O Output file  M Merge  Q Quit")
             line(if (promptTitle != null) "$promptTitle: ${inputTail(input, columns - promptTitle.length - 4)}▏" else "")
-            line(if (promptTitle != null) "Enter Bekreft  Esc Avbryt  Ctrl+U Tøm feltet" else "") { cyan(it) }
+            line(if (promptTitle != null) "Enter Confirm  Esc Cancel  Ctrl+U Clear" else "") { cyan(it) }
         }
         // A fullscreen UI has a fixed origin. Relative textAnimation updates in Mordant 3.1.0
         // skip moving up on terminals reporting ANSI cursor support (including Windows Terminal).

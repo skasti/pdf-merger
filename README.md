@@ -4,8 +4,6 @@ A local Kotlin terminal application that merges 1–15 PDF files into a new PDF.
 
 PDF processing uses Apache PDFBox. The fullscreen interface uses Mordant panels and focus highlighting, with JLine providing keyboard input and native console output. On Windows, Unicode text is written directly to the console.
 
-The interface currently uses Norwegian labels and messages.
-
 ## Requirements
 
 - Java 21 or later.
@@ -79,7 +77,7 @@ In path prompts, **Enter** confirms, **Esc** cancels, **Backspace** deletes the 
 
 ## Output and supported files
 
-The default output is `samlet.pdf` in the starting directory. Existing files are never overwritten, and source files are left intact. The output directory must already exist.
+The default output is `merged.pdf` in the starting directory. Existing files are never overwritten, and source files are left intact. The output directory must already exist.
 
 After merging, the interface shows the number of files, the total page count, and the output path. Encrypted or password-protected PDFs must be saved as unencrypted copies before they can be merged.
 
