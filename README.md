@@ -1,46 +1,102 @@
-# PDF-sammenslåing
+# PDF Merger
 
-Et terminalverktøy i Kotlin som slår sammen 1–15 PDF-filer til én ny PDF. Alle sidene tas med i rekkefølgen du velger. Filene behandles lokalt med Apache PDFBox, og terminalgrensesnittet bruker Mordant 3.1.0 til paneler, fokusmarkering og fullskjermvisning, med JLine til tastatur og native terminalutskrift. På Windows skrives Unicode-tegn direkte til konsollen, uavhengig av aktiv kodepage.
+A local Kotlin terminal application that merges 1–15 PDF files into a new PDF. Every page is included in the order you choose, and files can be selected from multiple directories.
 
-Du trenger Java 21 eller nyere.
+PDF processing uses Apache PDFBox. The fullscreen interface uses Mordant panels and focus highlighting, with JLine providing keyboard input and native console output. On Windows, Unicode text is written directly to the console.
 
-I IntelliJ på Windows: velg **PDF-merger** i Run-listen øverst og trykk **Run**. Den delte konfigurasjonen i `.run/PDF-merger.run.xml` bygger programmet med `installDist` og åpner det i Windows Terminal, på samme måte som i retro-zip. Windows Terminal og IntelliJs Shell Script-støtte må være installert. Bruk denne konfigurasjonen til TUI-et; kjøring av `MainKt.main()` via Gradle bruker en Run-konsoll uten nødvendig terminaltilgang.
+The interface currently uses Norwegian labels and messages.
 
-Du kan også bygge og starte fra PowerShell i prosjektmappen:
+## Requirements
+
+- Java 21 or later.
+- An interactive terminal, such as Windows Terminal or the terminal tab in IntelliJ IDEA.
+- A terminal window of at least 64 columns × 16 rows; 100 columns or more is recommended.
+
+The Gradle wrapper is included, so you do not need to install Gradle separately.
+
+## Build and run
+
+### Windows
+
+Run these commands in PowerShell from the project directory:
 
 ```powershell
 .\gradlew.bat installDist
 .\build\install\pdf-merger\bin\pdf-merger.bat
 ```
 
-Du kan også velge startmappe:
+You can also choose a starting directory:
 
 ```powershell
-.\build\install\pdf-merger\bin\pdf-merger.bat "C:\Users\stig-\Documents"
+.\build\install\pdf-merger\bin\pdf-merger.bat "$env:USERPROFILE\Documents"
 ```
 
-Bruk en vanlig terminal, for eksempel Windows Terminal eller terminalfanen i IntelliJ. IntelliJs vanlige Run-konsoll støtter ikke nødvendigvis det interaktive grensesnittet. Anbefalt størrelse er minst 100 kolonner; minimum er 64 kolonner og 16 rader.
+If Windows Terminal reports `TERM=dumb`, set the terminal type and start the application again in the same window:
 
-Hvis Windows Terminal gir feilen `TERM=dumb`, kjør `$env:TERM = 'xterm-256color'` i PowerShell og start programmet igjen i samme terminal.
+```powershell
+$env:TERM = 'xterm-256color'
+```
 
-På Linux/macOS: `./gradlew installDist`, deretter `./build/install/pdf-merger/bin/pdf-merger`.
+### Linux and macOS
 
-| Tast | Handling |
+From the project directory:
+
+```sh
+bash ./gradlew installDist
+./build/install/pdf-merger/bin/pdf-merger
+```
+
+Pass an optional starting directory, or use `--help` to show the command-line usage:
+
+```sh
+./build/install/pdf-merger/bin/pdf-merger "$HOME/Documents"
+./build/install/pdf-merger/bin/pdf-merger --help
+```
+
+### IntelliJ IDEA on Windows
+
+Select **PDF-merger** from the Run configuration list and click **Run**. The shared configuration in `.run/PDF-merger.run.xml` builds the application with `installDist` and opens it in Windows Terminal.
+
+Windows Terminal and IntelliJ's Shell Script support must be installed. Use this configuration for the interactive interface: running `MainKt.main()` through Gradle uses a Run console that may not provide the required terminal access.
+
+## Keyboard controls
+
+| Key | Action |
 | --- | --- |
-| ↑ / ↓ | Flytt markøren i aktivt panel |
-| Enter | Åpne mappe eller velg/fjern markert PDF |
-| Mellomrom | Velg/fjern en PDF; maksimalt 15 |
-| Tab | Bytt mellom filvelger og valgt rekkefølge |
-| + / - | Flytt filen opp/ned i rekkefølgepanelet |
-| Delete | Fjern en fil fra rekkefølgepanelet |
-| Backspace | Gå til overordnet mappe, eller fjern fra rekkefølgepanelet |
-| G | Skriv inn en mappe, også på en annen disk |
-| O | Skriv inn navn eller full sti til utfilen |
-| M | Slå sammen valgte filer |
-| Q / Esc / Ctrl+C | Avslutt |
+| ↑ / ↓ | Move the cursor in the active panel |
+| Enter | Open a directory or select/remove the highlighted PDF |
+| Space | Select/remove a PDF; up to 15 files |
+| Tab | Switch between the file browser and selection order |
+| + / - | Move a file up/down in the selection order |
+| Delete | Remove a file from the selection order |
+| Backspace | Open the parent directory, or remove a file in the selection panel |
+| G | Enter a directory path, including a path on another drive |
+| O | Enter a filename or full path for the output PDF |
+| M | Merge the selected files |
+| Q / Esc / Ctrl+C | Quit |
 
-Du kan velge filer fra flere mapper. I tekstfeltene bekrefter Enter, Esc avbryter, Backspace sletter siste tegn og Ctrl+U tømmer feltet. Relative stier tolkes fra mappen som vises i filvelgeren. `.pdf` legges til automatisk hvis det mangler i navnet på utfilen.
+In path prompts, **Enter** confirms, **Esc** cancels, **Backspace** deletes the last character, and **Ctrl+U** clears the field. Relative paths are resolved from the directory shown in the file browser. The `.pdf` extension is added automatically if it is missing from the output filename.
 
-Standard utfil er `samlet.pdf` i startmappen. Eksisterende filer overskrives aldri, og originalene beholdes. Mappen du lagrer til må finnes. Etter sammenslåing vises antall filer, antall sider og lagringssted. Krypterte/passordbeskyttede PDF-er må lagres som ukrypterte kopier før de kan brukes.
+## Output and supported files
 
-Kjør testene med `./gradlew test` (`.\gradlew.bat test` på Windows).
+The default output is `samlet.pdf` in the starting directory. Existing files are never overwritten, and source files are left intact. The output directory must already exist.
+
+After merging, the interface shows the number of files, the total page count, and the output path. Encrypted or password-protected PDFs must be saved as unencrypted copies before they can be merged.
+
+## Tests
+
+On Windows:
+
+```powershell
+.\gradlew.bat test
+```
+
+On Linux or macOS:
+
+```sh
+bash ./gradlew test
+```
+
+## License
+
+This project is licensed under the [MIT License](LICENSE). Third-party dependencies retain their own licenses.

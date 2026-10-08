@@ -24,6 +24,14 @@ application {
     mainClass.set("org.skasti.MainKt")
 }
 
+distributions {
+    main {
+        contents {
+            from("README.md", "LICENSE")
+        }
+    }
+}
+
 tasks.named<JavaExec>("run") {
     standardInput = System.`in`
 }
